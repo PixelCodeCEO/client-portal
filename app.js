@@ -132,12 +132,6 @@ function render() {
     persist();
   }
 
-  const nowIso = now();
-  if (!me.lastActiveAt || (Date.now() - new Date(me.lastActiveAt).getTime()) > 60_000) {
-    me.lastActiveAt = nowIso;
-    persist();
-  }
-
   if (me.role === 'client' && me.firstLogin) return renderFirstLoginReset(me);
 
   const menu = me.role === 'admin'
@@ -220,8 +214,7 @@ function renderAuth() {
         <div class="form-group"><label>Password</label><input type="password" name="password" required /></div>
         <div class="form-group"><label>Scope summary</label><textarea name="scopeSummary" required></textarea></div>
         <div class="form-group"><label>Max budget (optional)</label><input name="maxPrice" placeholder="e.g. 5000" /></div>
-        <div class="form-group"><label>Logo (optional upload)</label><input name="logoFile" type="file" accept="image/*" /></div>
-        <div class="form-group"><label>Logo URL (optional)</label><input name="logoUrl" placeholder="https://..." /></div>
+        <div class="form-group upload-card"><label>Logo (optional upload)</label><input class="file-input" name="logoFile" type="file" accept="image/*" /></div>
         <div class="form-group upload-card"><label>Project images (optional uploads)</label><input class="file-input" name="imageFiles" type="file" accept="image/*" multiple /></div>
         <div class="button-row"><button class="secondary">Use invite</button></div>
       </form>
@@ -272,10 +265,9 @@ function renderAuth() {
       invite.used = true;
       const scopeSummary = String(fd.get('scopeSummary') || '');
       const maxPrice = String(fd.get('maxPrice') || '');
-      const logoUrlFromInput = String(fd.get('logoUrl') || '');
       const logoFile = fd.get('logoFile');
       const imageFiles = fd.getAll('imageFiles').filter((file) => file && file.size > 0);
-      const logoUrl = logoFile && logoFile.size > 0 ? await uploadFileToStorage(logoFile, `projects/${cred.user.uid}/intake/logo`) : logoUrlFromInput;
+      const logoUrl = logoFile && logoFile.size > 0 ? await uploadFileToStorage(logoFile, `projects/${cred.user.uid}/intake/logo`) : ''; 
       const uploadedImageUrls = [];
       for (const image of imageFiles) {
         uploadedImageUrls.push(await uploadFileToStorage(image, `projects/${cred.user.uid}/intake/images`));
