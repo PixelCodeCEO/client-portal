@@ -16,7 +16,8 @@ Open `http://localhost:4173`.
 2. Enable **Firestore** and **Authentication** (Email/Password provider).
 3. Copy `firebase-config.example.js` to `firebase-config.js` (or edit `firebase-config.js`).
 4. Fill in your Firebase web app config values.
-5. Deploy Firestore rules from this repo:
+5. Set `publicAppUrl` in `firebase-config.js` to your deployed domain (e.g. `https://portal.keylinestudios.com`) so invite links always point to production.
+6. Deploy Firestore rules from this repo:
 
 ```bash
 firebase login
@@ -24,7 +25,7 @@ firebase use <your-project-id>
 firebase deploy --only firestore:rules
 ```
 
-6. Create at least one admin auth account in Firebase Authentication (Users tab), then ensure that same email exists in portal `users` data with `role: admin`.
+7. Create at least one admin auth account in Firebase Authentication (Users tab), then ensure that same email exists in portal `users` data with `role: admin`.
 
 The app uses Firestore document `portal/state` for shared, real-time data.
 
@@ -45,4 +46,5 @@ The app uses Firestore document `portal/state` for shared, real-time data.
 
 ## Admin project onboarding
 - Admin can create a client project and generate a single-use invite link from the Projects page.
-- The generated link contains the invite token (`#invite=...`) and opens the invite activation form.
+- UI now provides a single copyable invite link field (no full list).
+- When invitee opens link and activates invite, they are prompted for project onboarding details (scope summary, max budget, logo URL, image URLs) which are written to their pending project.
