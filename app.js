@@ -100,6 +100,7 @@ This Agreement may be signed electronically and in counterparts. Electronic sign
 EXHIBIT A: SCOPE AND DELIVERABLES (LAUNCH WEBSITE)
 A single-page, mobile-first Launch website including Hero+CTA, About, Product/Offer, Gallery, FAQ, Contact Form, basic SEO, domain connection/launch after final payment, and two revision rounds.
 Not included: extra pages, Shopify store/checkout/catalog, custom configurators, extensive copywriting, blog setup, ongoing maintenance, advanced paid ads/analytics unless added.`;
+const REQUIRED_AGREEMENT_VERSION = 'launch-v2';
 
 await boot();
 
@@ -192,7 +193,8 @@ function render() {
 
   if (me.role === 'client' && me.firstLogin) return renderFirstLoginReset(me);
   const clientProject = me.role === 'client' ? getClientProject(me) : null;
-  if (me.role === 'client' && clientProject && !getContractSignature(me.uid, clientProject.projectId)) return renderContractAgreement(me, clientProject);
+  const contractSignature = me.role === 'client' ? getClientContractSignature(me, clientProject) : null;
+  if (me.role === 'client' && !contractSignature) return renderContractAgreement(me, clientProject);
 
   const menu = me.role === 'admin'
     ? ['Projects', 'Project Admin', 'Audit Log', 'Admins', 'Settings']
@@ -356,7 +358,7 @@ function renderContractAgreement(me, project) {
   appNode.innerHTML = `
     <div class="auth glass contract-box">
       <h2>Service Agreement Signature Required</h2>
-      <p class="small">Please review and sign this agreement before accessing your dashboard for ${escapeHtml(project.businessName)}.</p>
+      <p class="small">Please review and sign this agreement before accessing your dashboard${project?.businessName ? ` for ${escapeHtml(project.businessName)}` : ''}.</p>
       <pre class="contract-text">${escapeHtml(KEYLINE_LAUNCH_AGREEMENT)}</pre>
       <form id="contractSignForm" class="section">
         <div class="form-group"><label>Type your full legal name as signature</label><input name="typedName" required /></div>
@@ -377,13 +379,13 @@ function renderContractAgreement(me, project) {
     state.contract_signatures = state.contract_signatures.filter((x) => !(x.clientId === me.uid && x.projectId === project.projectId));
     state.contract_signatures.push({
       signatureId: uid('sig'),
-      projectId: project.projectId,
+      projectId: project?.projectId || '',
       clientId: me.uid,
       clientEmail: me.email,
       clientName: me.name,
       typedName,
       agreementTitle: 'KEYLINE STUDIOS SERVICE AGREEMENT (LAUNCH WEBSITE)',
-      agreementVersion: 'launch-v1',
+      agreementVersion: REQUIRED_AGREEMENT_VERSION,
       signedAt: now(),
     });
     await persist();
@@ -534,6 +536,17 @@ function getClientProject(me) {
 function getContractSignature(clientId, projectId) {
   if (!clientId || !projectId) return null;
   return (state.contract_signatures || []).find((signature) => signature.clientId === clientId && signature.projectId === projectId) || null;
+}
+
+function getClientContractSignature(me, project) {
+  if (!me) return null;
+  const projectId = project?.projectId || '';
+  const byClientId = (state.contract_signatures || []).find((signature) => signature.clientId === me.uid && String(signature.projectId || '') === projectId);
+  const byEmail = (state.contract_signatures || []).find((signature) => String(signature.clientEmail || '').toLowerCase() === String(me.email || '').toLowerCase() && String(signature.projectId || '') === projectId);
+  const signature = byClientId || byEmail || null;
+  if (!signature) return null;
+  if (signature.agreementVersion !== REQUIRED_AGREEMENT_VERSION) return null;
+  return signature;
 }
 
 function getContractSignatureByEmail(clientEmail, projectId) {
