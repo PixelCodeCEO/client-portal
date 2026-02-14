@@ -18,6 +18,9 @@ let state = load();
 let session = JSON.parse(localStorage.getItem('session') || 'null');
 let route = 'Dashboard';
 let selectedProjectId = state.projects[0]?.projectId;
+let adminHudFilter = 'all';
+let projectFilters = { search: '', status: '', flags: '' };
+let auditFilters = { projectId: '', actorId: '', action: '', from: '', to: '' };
 
 const app = document.querySelector('#app');
 render();
@@ -34,6 +37,8 @@ function render() {
     ? ['Projects', 'Project Admin', 'Audit Log', 'Admins']
     : ['Dashboard', 'Project', 'Files', 'Messages', 'Settings'];
 
+  const showHud = me.role === 'admin' && ['Projects', 'Project Admin', 'Audit Log'].includes(route);
+
   app.innerHTML = `
     <div class="shell">
       <nav class="glass">
@@ -42,13 +47,42 @@ function render() {
         <div class="nav-stack">${menu.map((m) => `<button class="menu-btn secondary" data-route="${m}">${m}</button>`).join('')}</div>
         <div class="logout-wrap"><button id="logoutBtn" class="danger">Logout</button></div>
       </nav>
-      <main class="glass"><div class="page">${renderRoute(me)}</div></main>
+      <main class="glass"><div class="page">${showHud ? renderAdminHud() : ''}${renderRoute(me)}</div></main>
     </div>
   `;
 
   app.querySelectorAll('[data-route]').forEach((btn) => btn.onclick = () => { route = btn.dataset.route; render(); });
   app.querySelector('#logoutBtn').onclick = logout;
+  app.querySelectorAll('[data-hud-filter]').forEach((btn) => {
+    btn.onclick = () => {
+      adminHudFilter = btn.dataset.hudFilter;
+      render();
+    };
+  });
   bindForms(me);
+}
+
+function renderAdminHud() {
+  const activeProjects = state.projects.filter((p) => !['live', 'closed'].includes(String(p.status).toLowerCase())).length;
+  const overdueProjects = state.projects.filter((p) => isOverdueProject(p)).length;
+  const waitingOnClient = state.projects.filter((p) => projectWaiting(p)).length;
+  const thisWeekActivity = state.audit_logs.filter((l) => (Date.now() - new Date(l.timestamp).getTime()) <= 7 * 24 * 3600_000).length;
+  const avgTurnaround = avgTurnaroundDays();
+
+  const metrics = [
+    { key: 'active', label: 'Active Projects', value: activeProjects },
+    { key: 'overdue', label: 'Overdue Projects', value: overdueProjects },
+    { key: 'waiting', label: 'Waiting on Client', value: waitingOnClient },
+    { key: 'activity', label: 'This Week Activity', value: thisWeekActivity },
+    { key: 'turnaround', label: 'Avg Turnaround', value: avgTurnaround == null ? '—' : `${avgTurnaround}d` },
+  ];
+
+  return `<section class="analytics-strip" aria-label="Admin analytics summary">${metrics.map((m, i) => `
+      <button class="hud-pill ${i === 0 ? 'primary-metric' : ''} ${adminHudFilter === m.key ? 'active' : ''}" data-hud-filter="${m.key}">
+        <span class="hud-label">${m.label}</span>
+        <span class="hud-value">${m.value}</span>
+      </button>`).join('')}
+    </section>`;
 }
 
 function renderAuth() {
@@ -234,34 +268,39 @@ function renderSettings(me) {
 }
 
 function renderProjectsList() {
-  const rows = state.projects.map(projectRow).join('');
+  const rows = getVisibleProjects().map(projectRow).join('');
   return `
     <section class="section">
       <h2>Projects</h2>
       <form id="filterProjects" class="filter-row">
-        <input name="search" placeholder="Search business" />
-        <select name="status"><option value="">All statuses</option><option>Audit</option><option>Mockup</option><option>Build</option><option>Live</option></select>
-        <select name="flags"><option value="">Any</option><option value="overdue">Overdue</option><option value="waiting">Waiting on client</option></select>
+        <input name="search" value="${escapeAttr(projectFilters.search)}" placeholder="Search business" />
+        <select name="status"><option value="">All statuses</option><option ${projectFilters.status === 'Audit' ? 'selected' : ''}>Audit</option><option ${projectFilters.status === 'Mockup' ? 'selected' : ''}>Mockup</option><option ${projectFilters.status === 'Build' ? 'selected' : ''}>Build</option><option ${projectFilters.status === 'Live' ? 'selected' : ''}>Live</option></select>
+        <select name="flags"><option value="" ${projectFilters.flags === '' ? 'selected' : ''}>Any</option><option value="overdue" ${projectFilters.flags === 'overdue' ? 'selected' : ''}>Overdue</option><option value="waiting" ${projectFilters.flags === 'waiting' ? 'selected' : ''}>Waiting on client</option></select>
         <div class="button-row" style="margin-top:0;"><button class="secondary">Apply</button></div>
       </form>
     </section>
     <section class="section table-wrap">
       <table class="table">
         <thead><tr><th>Business</th><th>Status</th><th class="meta">Due</th><th class="meta">Overdue</th><th class="meta">Waiting</th></tr></thead>
-        <tbody id="projectRows">${rows}</tbody>
+        <tbody id="projectRows">${rows || '<tr><td colspan="5">No matches</td></tr>'}</tbody>
       </table>
     </section>
   `;
 }
 
 function renderProjectAdmin(me) {
-  const p = state.projects.find((x) => x.projectId === selectedProjectId) || state.projects[0];
+  const candidates = state.projects.filter((p) => matchesHudFilter(p, adminHudFilter));
+  const fallback = state.projects;
+  const source = candidates.length ? candidates : fallback;
+  const p = source.find((x) => x.projectId === selectedProjectId) || source[0];
   if (!p) return '<section class="section"><h2>No projects</h2></section>';
+  selectedProjectId = p.projectId;
   const client = getUser(p.clientId);
 
   return `
     <section class="section">
       <h2>Project Admin View</h2>
+      <div class="small">Metric filter: ${adminHudFilter}</div>
       <form id="adminEditProject">
         <div class="form-grid">
           <div class="form-group"><label>Status</label><select name="status">${['Audit', 'Mockup', 'Build', 'Live'].map((s) => `<option ${s === p.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
@@ -292,6 +331,7 @@ function renderProjectAdmin(me) {
 }
 
 function renderAudit() {
+  const rows = getVisibleAuditLogs();
   return `
     <section class="section">
       <h2>Audit Log</h2>
@@ -299,11 +339,11 @@ function renderAudit() {
         <summary>Filters</summary>
         <form id="filterAudit" class="section">
           <div class="form-grid">
-            <div class="form-group"><label>Project</label><input name="projectId" placeholder="proj-..." /></div>
-            <div class="form-group"><label>Actor</label><input name="actorId" placeholder="admin-..." /></div>
-            <div class="form-group"><label>Action</label><input name="action" placeholder="project.update" /></div>
-            <div class="form-group"><label>From</label><input name="from" type="date" /></div>
-            <div class="form-group"><label>To</label><input name="to" type="date" /></div>
+            <div class="form-group"><label>Project</label><input name="projectId" value="${escapeAttr(auditFilters.projectId)}" placeholder="proj-..." /></div>
+            <div class="form-group"><label>Actor</label><input name="actorId" value="${escapeAttr(auditFilters.actorId)}" placeholder="admin-..." /></div>
+            <div class="form-group"><label>Action</label><input name="action" value="${escapeAttr(auditFilters.action)}" placeholder="project.update" /></div>
+            <div class="form-group"><label>From</label><input name="from" type="date" value="${escapeAttr(auditFilters.from)}" /></div>
+            <div class="form-group"><label>To</label><input name="to" type="date" value="${escapeAttr(auditFilters.to)}" /></div>
           </div>
           <div class="button-row">
             <button type="button" id="exportCsv" class="secondary">Export CSV</button>
@@ -315,7 +355,7 @@ function renderAudit() {
     <section class="section table-wrap">
       <table class="table">
         <thead><tr><th>Timestamp</th><th>Actor</th><th>Action</th><th>Target</th><th class="meta">Project</th></tr></thead>
-        <tbody id="auditRows">${auditRows(state.audit_logs)}</tbody>
+        <tbody id="auditRows">${auditRows(rows)}</tbody>
       </table>
     </section>
   `;
@@ -396,17 +436,12 @@ function bindForms(me) {
   if (filterProjects) filterProjects.onsubmit = (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const search = String(fd.get('search') || '').toLowerCase();
-    const status = String(fd.get('status') || '');
-    const flag = String(fd.get('flags') || '');
-
-    const rows = state.projects.filter((p) => {
-      const overdue = new Date(p.dueDate) < Date.now();
-      const waiting = /review|approve/i.test(p.nextStepText);
-      return (!search || p.businessName.toLowerCase().includes(search)) && (!status || p.status === status) && (!flag || (flag === 'overdue' ? overdue : waiting));
-    }).map(projectRow).join('');
-
-    document.querySelector('#projectRows').innerHTML = rows || '<tr><td colspan="5">No matches</td></tr>';
+    projectFilters = {
+      search: String(fd.get('search') || ''),
+      status: String(fd.get('status') || ''),
+      flags: String(fd.get('flags') || ''),
+    };
+    render();
   };
 
   const adminEdit = document.querySelector('#adminEditProject');
@@ -443,21 +478,21 @@ function bindForms(me) {
   if (filterAudit) filterAudit.onsubmit = (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const rows = state.audit_logs.filter((l) => {
-      if (fd.get('projectId') && !String(l.projectId || '').includes(fd.get('projectId'))) return false;
-      if (fd.get('actorId') && !String(l.actorId).includes(fd.get('actorId'))) return false;
-      if (fd.get('action') && !String(l.action).includes(fd.get('action'))) return false;
-      if (fd.get('from') && new Date(l.timestamp) < new Date(fd.get('from'))) return false;
-      if (fd.get('to') && new Date(l.timestamp) > new Date(`${fd.get('to')}T23:59:59`)) return false;
-      return true;
-    });
-    document.querySelector('#auditRows').innerHTML = auditRows(rows);
+    auditFilters = {
+      projectId: String(fd.get('projectId') || ''),
+      actorId: String(fd.get('actorId') || ''),
+      action: String(fd.get('action') || ''),
+      from: String(fd.get('from') || ''),
+      to: String(fd.get('to') || ''),
+    };
+    render();
   };
 
   const exportCsv = document.querySelector('#exportCsv');
   if (exportCsv) exportCsv.onclick = () => {
     const headers = ['timestamp', 'actorId', 'actorRole', 'action', 'targetType', 'targetId', 'projectId'];
-    const lines = [headers.join(',')].concat(state.audit_logs.map((l) => headers.map((h) => `"${String(l[h] ?? '').replaceAll('"', '""')}"`).join(',')));
+    const rows = getVisibleAuditLogs();
+    const lines = [headers.join(',')].concat(rows.map((l) => headers.map((h) => `"${String(l[h] ?? '').replaceAll('"', '""')}"`).join(',')));
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -485,10 +520,71 @@ function bindForms(me) {
   });
 }
 
+function getVisibleProjects() {
+  return state.projects.filter((p) => {
+    const search = projectFilters.search.toLowerCase();
+    const status = projectFilters.status;
+    const flag = projectFilters.flags;
+    const overdue = isOverdueProject(p);
+    const waiting = projectWaiting(p);
+    const passForm = (!search || p.businessName.toLowerCase().includes(search)) && (!status || p.status === status) && (!flag || (flag === 'overdue' ? overdue : waiting));
+    return passForm && matchesHudFilter(p, adminHudFilter);
+  });
+}
+
+function getVisibleAuditLogs() {
+  return state.audit_logs.filter((l) => {
+    if (auditFilters.projectId && !String(l.projectId || '').includes(auditFilters.projectId)) return false;
+    if (auditFilters.actorId && !String(l.actorId).includes(auditFilters.actorId)) return false;
+    if (auditFilters.action && !String(l.action).includes(auditFilters.action)) return false;
+    if (auditFilters.from && new Date(l.timestamp) < new Date(auditFilters.from)) return false;
+    if (auditFilters.to && new Date(l.timestamp) > new Date(`${auditFilters.to}T23:59:59`)) return false;
+
+    const project = state.projects.find((p) => p.projectId === l.projectId);
+    if (adminHudFilter === 'activity') {
+      return (Date.now() - new Date(l.timestamp).getTime()) <= 7 * 24 * 3600_000;
+    }
+    if (adminHudFilter === 'turnaround') return l.action === 'project.update';
+    if (!project) return adminHudFilter === 'all';
+    return matchesHudFilter(project, adminHudFilter);
+  });
+}
+
+function matchesHudFilter(project, filter) {
+  if (filter === 'all') return true;
+  if (filter === 'active') return !['live', 'closed'].includes(String(project.status).toLowerCase());
+  if (filter === 'overdue') return isOverdueProject(project);
+  if (filter === 'waiting') return projectWaiting(project);
+  if (filter === 'activity' || filter === 'turnaround') return true;
+  return true;
+}
+
+function isOverdueProject(project) {
+  return new Date(project.dueDate) < Date.now() && String(project.status).toLowerCase() !== 'live';
+}
+
+function projectWaiting(project) {
+  return /review|approve|waiting/i.test(project.nextStepText || '');
+}
+
+function avgTurnaroundDays() {
+  const intervals = [];
+  state.projects.forEach((project) => {
+    const history = (project.statusHistory || []).slice().sort((a, b) => new Date(a.at) - new Date(b.at));
+    for (let i = 1; i < history.length; i += 1) {
+      const prev = new Date(history[i - 1].at).getTime();
+      const curr = new Date(history[i].at).getTime();
+      const diffDays = (curr - prev) / 86400_000;
+      if (Number.isFinite(diffDays) && diffDays >= 0) intervals.push(diffDays);
+    }
+  });
+  if (!intervals.length) return null;
+  const avg = intervals.reduce((sum, x) => sum + x, 0) / intervals.length;
+  return Math.round(avg * 10) / 10;
+}
+
 function projectRow(p) {
-  const overdue = new Date(p.dueDate) < Date.now() ? 'Yes' : 'No';
-  const waiting = /review|approve/i.test(p.nextStepText) ? 'Yes' : 'No';
-  return `<tr><td>${p.businessName}</td><td>${p.status}</td><td class="meta">${fmt(p.dueDate)}</td><td class="meta">${overdue}</td><td class="meta">${waiting}</td></tr>`;
+  return `<tr><td>${p.businessName}</td><td>${p.status}</td><td class="meta">${fmt(p.dueDate)}</td><td class="meta">${isOverdueProject(p) ? 'Yes' : 'No'}</td><td class="meta">${projectWaiting(p) ? 'Yes' : 'No'}</td></tr>`;
 }
 
 function canDeleteUpload(me, upload) {
@@ -515,3 +611,4 @@ function addHours(hours) { return new Date(Date.now() + (hours * 3600_000)).toIS
 function dateDays(days) { return new Date(Date.now() + (days * 86400_000)).toISOString(); }
 function uid(prefix) { return `${prefix}-${Math.random().toString(36).slice(2, 9)}`; }
 function fmt(x) { return new Date(x).toLocaleString(); }
+function escapeAttr(x) { return String(x || '').replaceAll('"', '&quot;'); }

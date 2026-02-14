@@ -212,10 +212,58 @@ summary { cursor: pointer; color: var(--label); font-weight: 700; }
 
 hr { border-color: var(--divider); margin: var(--space-3) 0; }
 
+
+.analytics-strip {
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-1);
+  align-items: stretch;
+  margin-bottom: var(--space-2);
+}
+
+.hud-pill {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  text-align: left;
+  gap: 2px;
+  min-height: 72px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.32);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+}
+
+.hud-pill.primary-metric {
+  background: rgba(37, 99, 235, 0.18);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.hud-pill.active {
+  border-color: rgba(125, 211, 252, 0.7);
+}
+
+.hud-label {
+  font-size: 0.74rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.hud-value {
+  font-size: 1.34rem;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.2;
+}
+
 @media (max-width: 1024px) {
   .shell { grid-template-columns: 1fr; }
   nav { position: static; min-height: auto; }
   .logout-wrap { margin-top: var(--space-3); }
   main { max-width: 100%; }
   .filter-row { grid-template-columns: 1fr; }
+  .analytics-strip { grid-template-columns: 1fr 1fr; }
 }
+
