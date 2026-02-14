@@ -138,12 +138,20 @@ input:focus, select:focus, textarea:focus {
 
 select {
   appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, #cbd5e1 50%), linear-gradient(135deg, #cbd5e1 50%, transparent 50%);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.92));
+  background-image: linear-gradient(45deg, transparent 50%, #e2e8f0 50%), linear-gradient(135deg, #e2e8f0 50%, transparent 50%);
   background-position: calc(100% - 18px) calc(50% - 3px), calc(100% - 12px) calc(50% - 3px);
   background-size: 6px 6px, 6px 6px;
   background-repeat: no-repeat;
-  padding-right: 34px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  padding-right: 36px;
 }
+
+select:hover {
+  border-color: rgba(125, 211, 252, 0.75);
+}
+
 
 .primary { background: #2563eb; border-color: #3b82f6; color: #eff6ff; }
 .secondary { background: transparent; border: 1px solid #64748b; color: #cbd5e1; }
@@ -165,18 +173,38 @@ select {
 .nav-stack .menu-btn + .menu-btn { margin-top: var(--space-2); }
 
 
-.nav-project-picker {
-  margin-top: var(--space-2);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--divider);
-}
 
 .upload-card {
   padding: var(--space-1);
-  border: 1px dashed rgba(148, 163, 184, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 11px;
-  background: rgba(15, 23, 42, 0.35);
+  background: rgba(15, 23, 42, 0.42);
 }
+
+.project-picker-group {
+  margin-top: var(--space-1);
+}
+
+.file-input {
+  padding: 8px;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.file-input::file-selector-button {
+  margin-right: 10px;
+  border: 1px solid rgba(59, 130, 246, 0.75);
+  background: rgba(37, 99, 235, 0.24);
+  color: #dbeafe;
+  border-radius: 9px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.file-input:hover::file-selector-button {
+  background: rgba(59, 130, 246, 0.36);
+}
+
 
 .logout-wrap {
   margin-top: auto;
