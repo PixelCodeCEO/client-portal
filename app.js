@@ -52,30 +52,9 @@ let authUser = null;
 let authReady = false;
 let latestInviteLink = '';
 
-let deferredRender = false;
-
-function safeRender() {
-  const active = document.activeElement;
-  const isTyping = !!active
-    && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)
-    && !active.readOnly
-    && !active.disabled;
-  if (isTyping) {
-    deferredRender = true;
-    return;
-  }
-  deferredRender = false;
-  render();
-}
-
-
-
 await boot();
 
 async function boot() {
-  document.addEventListener('focusout', () => {
-    if (deferredRender) setTimeout(() => safeRender(), 0);
-  });
   try {
     const app = initializeApp(firebaseConfig);
     db = getFirestore(app);
@@ -91,14 +70,17 @@ async function boot() {
         selectedProjectId = state.projects[0]?.projectId || selectedProjectId;
       }
       remoteReady = true;
-      safeRender();
+      const active = document.activeElement;
+      const isTyping = !!active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName) && !active.readOnly && !active.disabled;
+      if (!authUser || isTyping) return;
+      render();
     });
 
     onAuthStateChanged(auth, (user) => {
       authUser = user;
       authReady = true;
       route = user ? route : 'Dashboard';
-      safeRender();
+      render();
     });
 
     remoteReady = true;
@@ -109,7 +91,7 @@ async function boot() {
     state = JSON.parse(localStorage.getItem('portal-state') || 'null') || structuredClone(seed);
     authReady = true;
   }
-  safeRender();
+  render();
 }
 
 
@@ -182,7 +164,7 @@ function render() {
   appNode.querySelectorAll('[data-hud-filter]').forEach((btn) => {
     btn.onclick = () => {
       adminHudFilter = btn.dataset.hudFilter;
-      safeRender();
+      render();
     };
   });
   bindForms(me);
@@ -208,7 +190,7 @@ function renderFirstLoginReset(me) {
       await updatePassword(auth.currentUser, String(fd.get('newPassword')));
       me.firstLogin = false;
       await persist();
-      safeRender();
+      render();
     } catch (error) {
       alert(`Password update failed: ${error.message}`);
     }
