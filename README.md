@@ -41,3 +41,8 @@ The app uses Firestore document `portal/state` for shared, real-time data.
 - This remains an MVP and still stores role/profile metadata in Firestore state.
 - Admin management currently adds/removes Firestore role metadata only; creating admin Auth users should be done in Firebase Console (or backend/admin SDK).
 - `firestore.rules` currently allows full access for MVP bootstrap. Lock this down before production.
+
+
+## Admin project onboarding
+- Admin can create a client project and generate a single-use invite link from the Projects page.
+- The generated link contains the invite token (`#invite=...`) and opens the invite activation form.
