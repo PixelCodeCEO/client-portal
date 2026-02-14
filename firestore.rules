@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // MVP: app currently uses in-app email/password simulation, not Firebase Auth.
+    // For production, lock this down with Firebase Auth custom claims.
+    match /portal/state {
+      allow read, write: if true;
+    }
+  }
+}

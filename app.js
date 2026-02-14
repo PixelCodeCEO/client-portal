@@ -33,6 +33,7 @@ let stateRef = null;
 let remoteReady = false;
 let isPersisting = false;
 let bootstrapError = null;
+let bootstrapHint = '';
 
 await boot();
 
@@ -53,6 +54,7 @@ async function boot() {
   } catch (error) {
     console.error(error);
     bootstrapError = String(error?.message || error);
+    bootstrapHint = getFirebaseHint(bootstrapError);
     state = JSON.parse(localStorage.getItem('portal-state') || 'null') || structuredClone(seed);
   }
   render();
@@ -91,6 +93,7 @@ function render() {
         <div class="small">${me.name} (${me.role})</div>
         ${remoteReady ? '<div class="small">Live: Firebase</div>' : '<div class="small">Syncing…</div>'}
         ${bootstrapError ? `<div class="small">Fallback mode: ${bootstrapError}</div>` : ''}
+        ${bootstrapHint ? `<div class="small">${bootstrapHint}</div>` : ''}
         <div class="nav-stack">${menu.map((m) => `<button class="menu-btn secondary" data-route="${m}">${m}</button>`).join('')}</div>
         <div class="logout-wrap"><button id="logoutBtn" class="danger">Logout</button></div>
       </nav>
@@ -138,6 +141,7 @@ function renderAuth() {
       <h2>Invite-Only Login</h2>
       <p class="small">No public signup. Admin can create client or send invite token.</p>
       ${bootstrapError ? `<p class="small">Firebase unavailable. Running in local fallback mode.</p>` : ''}
+      ${bootstrapHint ? `<p class="small">${bootstrapHint}</p>` : ''}
       <form id="loginForm" class="section">
         <div class="form-group"><label>Email</label><input name="email" required /></div>
         <div class="form-group"><label>Password</label><input type="password" name="password" required /></div>
@@ -304,6 +308,18 @@ async function persist() {
   } finally {
     isPersisting = false;
   }
+}
+
+
+function getFirebaseHint(message) {
+  const m = String(message || '').toLowerCase();
+  if (m.includes('missing or insufficient permissions') || m.includes('permission-denied')) {
+    return 'Firestore rules are blocking reads/writes. Deploy rules that allow authenticated app access to portal/state for your MVP.';
+  }
+  if (m.includes('api key') || m.includes('project') || m.includes('app/no-app')) {
+    return 'Check firebase-config.js values (apiKey, projectId, appId, authDomain) and ensure Firestore is enabled.';
+  }
+  return '';
 }
 
 function logout() { session = null; localStorage.removeItem('session'); render(); }
