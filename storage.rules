@@ -1,0 +1,9 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // MVP: allow authenticated users to upload/read project files.
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
