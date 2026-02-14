@@ -1,5 +1,6 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js';
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js';
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.12.4/firebase-storage.js';
 import {
   getAuth,
   onAuthStateChanged,
@@ -41,6 +42,7 @@ let auditFilters = { projectId: '', actorId: '', action: '', from: '', to: '' };
 
 let db = null;
 let auth = null;
+let storage = null;
 let stateRef = null;
 let remoteReady = false;
 let isPersisting = false;
@@ -57,6 +59,7 @@ async function boot() {
     const app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
+    storage = getStorage(app);
     stateRef = doc(db, 'portal', 'state');
     await ensureRemoteSeed();
 
@@ -207,9 +210,11 @@ function renderAuth() {
         <div class="form-group"><label>Name</label><input name="name" required /></div>
         <div class="form-group"><label>Password</label><input type="password" name="password" required /></div>
         <div class="form-group"><label>Scope summary</label><textarea name="scopeSummary" required></textarea></div>
-        <div class="form-group"><label>Max budget</label><input name="maxPrice" placeholder="e.g. 5000" required /></div>
-        <div class="form-group"><label>Logo URL</label><input name="logoUrl" placeholder="https://..." /></div>
-        <div class="form-group"><label>Image URLs (comma separated)</label><textarea name="imageUrls" placeholder="https://... , https://..."></textarea></div>
+        <div class="form-group"><label>Max budget (optional)</label><input name="maxPrice" placeholder="e.g. 5000" /></div>
+        <div class="form-group"><label>Logo (optional upload)</label><input name="logoFile" type="file" accept="image/*" /></div>
+        <div class="form-group"><label>Logo URL (optional)</label><input name="logoUrl" placeholder="https://..." /></div>
+        <div class="form-group"><label>Project images (optional uploads)</label><input name="imageFiles" type="file" accept="image/*" multiple /></div>
+        <div class="form-group"><label>Image URLs (optional, comma separated)</label><textarea name="imageUrls" placeholder="https://... , https://..."></textarea></div>
         <div class="button-row"><button class="secondary">Use invite</button></div>
       </form>
       <p class="small">Admin users must exist in Firebase Auth and in portal users list.</p>
@@ -260,15 +265,23 @@ function renderAuth() {
       invite.used = true;
       const scopeSummary = String(fd.get('scopeSummary') || '');
       const maxPrice = String(fd.get('maxPrice') || '');
-      const logoUrl = String(fd.get('logoUrl') || '');
+      const logoUrlFromInput = String(fd.get('logoUrl') || '');
+      const logoFile = fd.get('logoFile');
+      const imageFiles = fd.getAll('imageFiles').filter((file) => file && file.size > 0);
       const imageUrls = String(fd.get('imageUrls') || '').split(',').map((x) => x.trim()).filter(Boolean);
+      const logoUrl = logoFile && logoFile.size > 0 ? await uploadFileToStorage(logoFile, `projects/${cred.user.uid}/intake/logo`) : logoUrlFromInput;
+      const uploadedImageUrls = [];
+      for (const image of imageFiles) {
+        uploadedImageUrls.push(await uploadFileToStorage(image, `projects/${cred.user.uid}/intake/images`));
+      }
+      const allImageUrls = uploadedImageUrls.concat(imageUrls);
       state.projects.forEach((p) => {
         if ((!p.clientId || p.clientId === '') && p.clientEmail && p.clientEmail.toLowerCase() === invite.clientEmail.toLowerCase()) {
           p.clientId = cred.user.uid;
           p.scopeSummary = scopeSummary;
           p.maxPrice = maxPrice;
           p.logoUrl = logoUrl;
-          p.imageUrls = imageUrls;
+          p.imageUrls = allImageUrls;
         }
       });
       await persist();
@@ -317,7 +330,7 @@ function renderRoute(me) {
 
 function renderDashboard(project) { return `<section class="section"><h2>Dashboard</h2><div><strong>${project.businessName}</strong> <span class="badge ${project.status.toLowerCase()}">${project.status}</span></div><div><strong>Next step:</strong> ${project.nextStepText}</div><div class="small">Project status is read-only for clients.</div></section>`; }
 function renderClientProject(project) { const items = state.deliverables.filter((d) => d.projectId === project.projectId); return `<section class="section"><h2>Project</h2><div class="two-col"><div><h3>Scope summary</h3><div>${project.scopeSummary || 'Website redesign + copy updates'}</div><div class="small">Max budget: ${project.maxPrice || 'Not set'}</div><div class="small">Start: ${fmt(project.startDate)}</div><div class="small">Target: ${fmt(project.dueDate)}</div>${project.logoUrl ? `<div class="small">Logo: <a href="${project.logoUrl}" target="_blank">View</a></div>` : ''}${(project.imageUrls || []).length ? `<div class="small">Images: ${(project.imageUrls || []).map((u, i) => `<a href="${u}" target="_blank">${i + 1}</a>`).join(', ')}</div>` : ''}</div><div><h3>Status timeline</h3><ul class="timeline">${project.statusHistory.map((s) => `<li>${s.status} <span class="small">${fmt(s.at)}</span></li>`).join('')}</ul></div></div></section><section class="section"><h3>Deliverables</h3>${items.map((d) => `<div class="section"><div><strong>${d.title}</strong> (${d.type}) · <a href="${d.urls[0]}" target="_blank">Preview</a></div><div class="small">Status: ${d.status}</div><form class="deliverable-action" data-id="${d.deliverableId}"><div class="form-group"><label>Comment</label><textarea name="comment" required></textarea></div><div class="button-row"><button class="secondary" name="decision" value="changes">Request changes</button><button class="primary" name="decision" value="approved">Approve</button></div></form>${state.deliverable_comments.filter((c) => c.deliverableId === d.deliverableId).map((c) => `<div class="small">${c.text} — ${fmt(c.createdAt)}</div>`).join('')}</div>`).join('')}</section>`; }
-function renderFiles(project, me) { const uploads = state.uploads.filter((u) => u.projectId === project.projectId); return `<section class="section"><h2>Files</h2><form id="uploadForm"><div class="form-grid"><div class="form-group"><label>Label</label><input name="label" required /></div><div class="form-group"><label>File URL</label><input name="fileUrl" required placeholder="https://..."/></div><div class="form-group"><label>Type</label><select name="fileType"><option>logo</option><option>copy</option><option>image</option></select></div></div><div class="button-row"><button class="primary">Upload</button></div></form></section><section class="section"><h3>File list</h3>${uploads.map((u) => `<div>${u.label} (${u.fileType}) · <a href="${u.fileUrl}" target="_blank">Download</a>${canDeleteUpload(me, u) ? ` · <button data-delupload="${u.uploadId}" class="secondary">Delete</button>` : ''}</div>`).join('') || '<div class="small">No uploads yet.</div>'}</section>`; }
+function renderFiles(project, me) { const uploads = state.uploads.filter((u) => u.projectId === project.projectId); return `<section class="section"><h2>Files</h2><form id="uploadForm"><div class="form-grid"><div class="form-group"><label>Label</label><input name="label" required /></div><div class="form-group"><label>Upload file</label><input name="fileUpload" type="file" /></div><div class="form-group"><label>Or file URL (optional)</label><input name="fileUrl" placeholder="https://..."/></div><div class="form-group"><label>Type</label><select name="fileType"><option>logo</option><option>copy</option><option>image</option></select></div></div><div class="button-row"><button class="primary">Upload</button></div></form></section><section class="section"><h3>File list</h3>${uploads.map((u) => `<div>${u.label} (${u.fileType}) · <a href="${u.fileUrl}" target="_blank">Download</a>${canDeleteUpload(me, u) ? ` · <button data-delupload="${u.uploadId}" class="secondary">Delete</button>` : ''}</div>`).join('') || '<div class="small">No uploads yet.</div>'}</section>`; }
 function renderMessages(project, me, includePageTitle = false) { const msgs = state.messages.filter((m) => m.projectId === project.projectId).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)); return `${includePageTitle ? '<section class="section"><h2>Messages</h2>' : '<section class="section"><h3>Messages</h3>'}<ul class="messages">${msgs.map((m) => `<li class="message"><div>${m.text}</div><div class="small">${m.role} · ${fmt(m.createdAt)}</div></li>`).join('')}</ul></section><section class="section"><form id="messageForm"><div class="form-group"><label>New message</label><textarea name="text" required></textarea></div><div class="button-row"><button class="primary">Send message</button></div></form></section>`; }
 function renderSettings(me) {
   return `<section class="section"><h2>Settings</h2><form id="settingsForm"><div class="form-grid"><div class="form-group"><label>Name</label><input name="name" value="${me.name}" required /></div><div class="form-group"><label>Notifications</label><select name="notifications"><option value="on" ${me.notifications ? 'selected' : ''}>On</option><option value="off" ${!me.notifications ? 'selected' : ''}>Off</option></select></div></div><div class="button-row"><button class="primary">Save profile</button></div></form></section>
@@ -331,7 +344,7 @@ function renderAdmins(me) { return `<section class="section"><h2>Admin Managemen
 
 function bindForms(me) {
   document.querySelectorAll('.deliverable-action').forEach((form) => form.onsubmit = (e) => { e.preventDefault(); const d = state.deliverables.find((x) => x.deliverableId === form.dataset.id); const fd = new FormData(form); d.status = fd.get('decision'); state.deliverable_comments.push({ commentId: uid('dc'), deliverableId: d.deliverableId, authorId: me.uid, text: fd.get('comment'), createdAt: now() }); logEvent(me.uid, me.role, `deliverable.${d.status}`, 'deliverables', d.deliverableId, d.projectId); persist(); render(); });
-  const uploadForm = document.querySelector('#uploadForm'); if (uploadForm) uploadForm.onsubmit = (e) => { e.preventDefault(); const fd = new FormData(e.target); state.uploads.push({ uploadId: uid('up'), projectId: selectedProjectId, uploaderId: me.uid, fileUrl: fd.get('fileUrl'), fileType: fd.get('fileType'), label: fd.get('label'), createdAt: now() }); if (me.role === 'admin') logEvent(me.uid, me.role, 'upload.create', 'uploads', '', selectedProjectId); persist(); render(); };
+  const uploadForm = document.querySelector('#uploadForm'); if (uploadForm) uploadForm.onsubmit = async (e) => { e.preventDefault(); const fd = new FormData(e.target); const file = fd.get('fileUpload'); let fileUrl = String(fd.get('fileUrl') || '').trim(); if (file && file.size > 0) fileUrl = await uploadFileToStorage(file, `projects/${selectedProjectId}/uploads`); if (!fileUrl) return alert('Please choose a file to upload or provide a URL.'); state.uploads.push({ uploadId: uid('up'), projectId: selectedProjectId, uploaderId: me.uid, fileUrl, fileType: fd.get('fileType'), label: fd.get('label'), createdAt: now() }); if (me.role === 'admin') logEvent(me.uid, me.role, 'upload.create', 'uploads', '', selectedProjectId); await persist(); render(); };
   document.querySelectorAll('[data-delupload]').forEach((btn) => btn.onclick = (e) => { e.preventDefault(); const upload = state.uploads.find((u) => u.uploadId === btn.dataset.delupload); if (!canDeleteUpload(me, upload)) return; state.uploads = state.uploads.filter((u) => u.uploadId !== upload.uploadId); persist(); render(); });
   const messageForm = document.querySelector('#messageForm'); if (messageForm) messageForm.onsubmit = (e) => { e.preventDefault(); const fd = new FormData(e.target); state.messages.push({ messageId: uid('msg'), projectId: selectedProjectId, authorId: me.uid, role: me.role, text: fd.get('text'), createdAt: now() }); if (me.role === 'admin') logEvent(me.uid, me.role, 'message.create', 'messages', '', selectedProjectId); persist(); render(); };
   const settingsForm = document.querySelector('#settingsForm'); if (settingsForm) settingsForm.onsubmit = (e) => { e.preventDefault(); const fd = new FormData(e.target); me.name = fd.get('name'); me.notifications = fd.get('notifications') === 'on'; persist(); render(); };
@@ -405,6 +418,15 @@ function canDeleteUpload(me, upload) { if (!upload) return false; if (me.role ==
 function logEvent(actorId, actorRole, action, targetType, targetId, projectId) { if (actorRole !== 'admin') return; state.audit_logs.push({ eventId: uid('evt'), timestamp: now(), actorId, actorRole, action, targetType, targetId, projectId, metadata: {} }); }
 function auditRows(logs) { return logs.slice().reverse().map((l) => `<tr><td>${fmt(l.timestamp)}</td><td>${l.actorId}</td><td>${l.action}</td><td>${l.targetType}:${l.targetId || '-'}</td><td class="meta">${l.projectId || '-'}</td></tr>`).join('') || '<tr><td colspan="5">No logs yet</td></tr>'; }
 
+
+async function uploadFileToStorage(file, folder) {
+  if (!storage) throw new Error('Firebase Storage is not configured.');
+  const safeName = `${Date.now()}-${String(file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const fileRef = storageRef(storage, `${folder}/${safeName}`);
+  await uploadBytes(fileRef, file);
+  return getDownloadURL(fileRef);
+}
+
 async function reauthWithPassword(password) {
   const user = auth.currentUser;
   const credential = EmailAuthProvider.credential(user.email, password);
@@ -427,7 +449,8 @@ async function persist() {
 function getFirebaseHint(message) {
   const m = String(message || '').toLowerCase();
   if (m.includes('missing or insufficient permissions') || m.includes('permission-denied')) return 'Firestore rules are blocking reads/writes. Deploy rules that allow app access to portal/state for your MVP.';
-  if (m.includes('api key') || m.includes('project') || m.includes('app/no-app')) return 'Check firebase-config.js values (apiKey, projectId, appId, authDomain) and ensure Firestore/Auth are enabled.';
+  if (m.includes('api key') || m.includes('project') || m.includes('app/no-app')) return 'Check firebase-config.js values (apiKey, projectId, appId, authDomain) and ensure Firestore/Auth/Storage are enabled.';
+  if (m.includes('storage') || m.includes('object-not-found') || m.includes('unauthorized')) return 'Firebase Storage may be blocked by rules. Enable Storage and deploy rules that allow authenticated upload access for MVP.';
   return '';
 }
 
