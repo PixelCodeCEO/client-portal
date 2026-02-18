@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // MVP: state doc backing the prototype app.
+    // For production, lock this down by role/claim and split collections.
+    match /portal/state {
+      allow read, write: if true;
+    }
+  }
+}
